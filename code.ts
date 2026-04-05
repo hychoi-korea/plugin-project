@@ -63,9 +63,23 @@ async function applyToFrame(frame: FrameNode, payload: ApplyPayload) {
   ];
 
   for (const [layer, text] of textUpdates) {
-    if (layer && (layer as any).type === 'TEXT') {
-      await figma.loadFontAsync((layer as TextNode).fontName as FontName);
-      (layer as TextNode).characters = text;
+    if (layer && (layer as any).type === 'TEXT' && text) {
+      const textNode = layer as TextNode;
+      if (textNode.fontName !== figma.mixed) {
+        await figma.loadFontAsync(textNode.fontName as FontName);
+      } else {
+        // 혼합 폰트 처리: 각 문자별 폰트를 개별 로드
+        const seen = new Set<string>();
+        for (let i = 0; i < textNode.characters.length; i++) {
+          const fn = textNode.getRangeFontName(i, i + 1) as FontName;
+          const key = `${fn.family}::${fn.style}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            await figma.loadFontAsync(fn);
+          }
+        }
+      }
+      textNode.characters = text;
     }
   }
 
@@ -75,7 +89,14 @@ async function applyToFrame(frame: FrameNode, payload: ApplyPayload) {
     const r = parseInt(hex.slice(0, 2), 16) / 255;
     const g = parseInt(hex.slice(2, 4), 16) / 255;
     const b = parseInt(hex.slice(4, 6), 16) / 255;
-    frame.fills = [{ type: 'SOLID', color: { r, g, b } }];
+    const solidFill: SolidPaint = { type: 'SOLID', color: { r, g, b } };
+    if (map.background_color) {
+      // #background_color 레이어가 있으면 그 레이어에 적용
+      (map.background_color as RectangleNode).fills = [solidFill];
+    } else {
+      // 없으면 프레임 자체 배경에 적용
+      frame.fills = [solidFill];
+    }
   }
 
   // 이미지 적용 헬퍼
@@ -89,9 +110,9 @@ async function applyToFrame(frame: FrameNode, payload: ApplyPayload) {
     (layer as RectangleNode).fills = [{ type: 'IMAGE', imageHash, scaleMode: 'FILL' }];
   }
 
-  await applyImage(map.image_main, payload.mainImage);
-  await applyImage(map.image_sub_01, payload.subImage01);
-  await applyImage(map.image_sub_02, payload.subImage02);
+  await applyImage(map.image_main,   payload.mainImage);
+  await applyImage(map.image_main_1, payload.subImage01);
+  await applyImage(map.image_main_2, payload.subImage02);
 
   // 뱃지 컴포넌트 교체
   if (map.badge && payload.badgeComponentName) {
@@ -119,6 +140,7 @@ function previewColor(color: string) {
 
 // 메시지 핸들러
 figma.ui.onmessage = async (msg: UIMessage) => {
+  console.log('[code] received message:', msg.type);
   try {
     switch (msg.type) {
       case 'GET_API_KEYS': {
@@ -151,13 +173,31 @@ figma.ui.onmessage = async (msg: UIMessage) => {
         if (node.type === 'SECTION') {
           const frames = getFramesFromSection(node as SectionNode);
           for (const frame of frames) await applyToFrame(frame as FrameNode, msg.payload);
-        } else if (node.type === 'FRAME') {
+        } else if (node.type === 'FRAME' || node.type === 'COMPONENT') {
           await applyToFrame(node as FrameNode, msg.payload);
         } else {
           sendToUI({ type: 'ERROR', message: '섹션 또는 프레임을 선택해주세요.' });
           return;
         }
         sendToUI({ type: 'APPLY_DONE' });
+        break;
+      }
+      case 'APPLY_GENERATED_IMAGE': {
+        const selection = figma.currentPage.selection;
+        if (selection.length === 0) break;
+        const node = selection[0];
+        const targets: SceneNode[] =
+          node.type === 'SECTION' ? getFramesFromSection(node as SectionNode) as SceneNode[]
+          : (node.type === 'FRAME' || node.type === 'COMPONENT') ? [node as SceneNode]
+          : [];
+        const bytes = Uint8Array.from(atob(msg.imageData.base64), (c) => c.charCodeAt(0));
+        const imageHash = figma.createImage(bytes).hash;
+        for (const target of targets) {
+          const layer = buildLayerMap(target as any).image_main;
+          if (layer) {
+            (layer as RectangleNode).fills = [{ type: 'IMAGE', imageHash, scaleMode: 'FILL' }];
+          }
+        }
         break;
       }
       case 'PREVIEW_COLOR': {

@@ -1,35 +1,34 @@
 // src/gemini.ts
 import type { ImageData } from './types';
 
-const GEMINI_MODEL = 'gemini-2.0-flash-exp';
+const GEMINI_MODEL = 'gemini-2.5-flash-image';
 const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 const IMAGE_GENERATION_PROMPT = `[Role & Purpose]
-당신은 하이엔드 라이프스타일 매거진의 전문 제품 사진작가이자 스타일리스트입니다. 사용자가 첨부하는 제품(Product A, Product B, Product C-optional)을 결합하여, 넓은 여백이 돋보이는 하나의 고급스러운 라이프스타일 연출 컷을 생성합니다.
+당신은 전문 제품 합성 사진작가입니다. 첨부된 제품 이미지들을 배경에 자연스럽게 합성하여 하나의 완성된 제품 이미지를 생성합니다.
 
-[Strict Layout & Scale Rules]
-- Massive Negative Space: 화면의 25% 이상을 빈 배경(여백)으로 유지
-- Zoomed Out & Small Objects: 카메라 앵글을 멀리 잡아 피사체들을 작게 연출
-- Center Composition: 오브제 그룹은 화면의 정확히 중앙에 위치, 사방으로 광활한 여백
+[Core Rules]
+- PRODUCT ONLY: 제품 이미지만 사용. 사람 손, 신체 부위 절대 포함 불가
+- COMPOSITE: 제품을 배경의 조명 방향, 색온도, 밝기(조도)에 정확히 맞춰 합성
+- 제품의 그림자와 반사광을 배경 환경에 맞게 자연스럽게 생성
+- 제품 원본 디자인, 라벨, 색상 절대 변형 불가
 
-[Styling & Environment Rules]
-- Scene: 따뜻하고 미니멀한 라이프스타일 인테리어 무드
-- Surface/Background: 심플하고 매트한 질감의 캔버스 또는 종이 질감의 무지 배경
-- Lighting: 부드러운 자연광, 은은한 측면광과 부드러운 그림자
-- Camera: 에디토리얼 제품 사진, 얕은 피사계 심도
-- Mood: 과하지 않고 심플하면서도 감각적인 미니멀 라이프스타일 미학
-- Color Palette: Ivory beige, Skyblue, Terracotta 톤 베이스
+[Layout Rules]
+- 제품은 화면 중앙에 배치, 사방으로 충분한 여백 확보 (화면의 30% 이상)
+- 제품이 화면 밖으로 잘리지 않도록 구도 설정
+- 복수 제품의 경우 자연스러운 그룹 배치
 
 [Strict Constraints]
-- NO TEXT, NO LOGO: 이미지 내 텍스트, 로고, 워터마크 절대 생성 불가
-- PRESERVE ORIGINALITY: 원본 제품 디자인, 라벨 절대 임의 변형 불가
-- NO CROP: 피사체가 화면 밖으로 잘리는 구도 절대 금지`;
+- NO HANDS, NO BODY PARTS: 손, 팔 등 신체 일절 생성 금지
+- NO TEXT, NO LOGO, NO WATERMARK: 텍스트, 로고, 워터마크 절대 생성 불가
+- NO CROP: 피사체가 화면 밖으로 잘리는 구도 금지`;
 
 /** 제품 이미지 1~3장을 받아 라이프스타일 배너 이미지 생성 */
 export async function generateBannerImage(
   productImages: ImageData[],
   bannerSize: string,
-  apiKey: string
+  apiKey: string,
+  backgroundColor?: string
 ): Promise<ImageData> {
   const imageParts = productImages.map((img) => ({
     inlineData: {
@@ -38,8 +37,12 @@ export async function generateBannerImage(
     },
   }));
 
+  const bgInstruction = backgroundColor
+    ? `\n\n[배경색 지정] 배경색을 반드시 ${backgroundColor} (HEX) 색상으로 사용하세요. 이 색상을 기반으로 전체 배경과 분위기를 구성하세요.`
+    : '';
+
   const textPart = {
-    text: `${IMAGE_GENERATION_PROMPT}\n\n배너 사이즈: ${bannerSize}\n첨부된 제품 이미지 ${productImages.length}장을 활용하여 위 지침에 맞는 라이프스타일 연출 이미지를 생성해주세요.`,
+    text: `${IMAGE_GENERATION_PROMPT}${bgInstruction}\n\n배너 사이즈: ${bannerSize}\n첨부된 제품 이미지 ${productImages.length}장을 활용하여 위 지침에 맞는 라이프스타일 연출 이미지를 생성해주세요.`,
   };
 
   const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {

@@ -22,12 +22,12 @@ export function findLayerByName(
   return null;
 }
 
-/** name을 포함하는 레이어를 재귀 탐색. 없으면 null */
+/** name을 포함하는 레이어를 재귀 탐색 (대소문자 무시). 없으면 null */
 export function findLayerContaining(
   node: TraversableNode,
   keyword: string
 ): TraversableNode | null {
-  if (node.name.includes(keyword)) return node;
+  if (node.name.toLowerCase().includes(keyword.toLowerCase())) return node;
   if (node.children) {
     for (const child of node.children) {
       const found = findLayerContaining(child, keyword);
@@ -66,35 +66,39 @@ export function splitMainCopy(copy: string): { part1: string; part2: string } {
 
 /** 프레임 내 레이어 매핑 결과 */
 export interface LayerMap {
-  main_copy_01: TraversableNode | null;
-  main_copy_02: TraversableNode | null;
-  main_copy_03: TraversableNode | null;
-  main_copy_04: TraversableNode | null;
-  sub_copy: TraversableNode | null;
-  image_main: TraversableNode | null;
-  image_sub_01: TraversableNode | null;
-  image_sub_02: TraversableNode | null;
-  badge: TraversableNode | null;
+  main_copy_01:     TraversableNode | null;
+  main_copy_02:     TraversableNode | null;
+  main_copy_03:     TraversableNode | null;
+  main_copy_04:     TraversableNode | null;
+  sub_copy:         TraversableNode | null;
+  image_main:       TraversableNode | null;
+  image_main_1:     TraversableNode | null;
+  image_main_2:     TraversableNode | null;
+  background_color: TraversableNode | null;
+  badge:            TraversableNode | null;
 }
 
 /** 프레임(또는 섹션)에서 레이어명 기반 매핑 */
 export function buildLayerMap(node: TraversableNode): LayerMap {
   return {
-    main_copy_01: findLayerByName(node, '#main_copy_01'),
-    main_copy_02: findLayerByName(node, '#main_copy_02'),
-    main_copy_03: findLayerByName(node, '#main_copy_03'),
-    main_copy_04: findLayerByName(node, '#main_copy_04'),
-    sub_copy:     findLayerByName(node, '#sub_copy'),
-    image_main:   findLayerContaining(node, 'image_main'),
-    image_sub_01: findLayerContaining(node, 'image_sub_01'),
-    image_sub_02: findLayerContaining(node, 'image_sub_02'),
-    badge:        findLayerContaining(node, 'badge'),
+    main_copy_01:     findLayerByName(node, '#main_copy_01'),
+    main_copy_02:     findLayerByName(node, '#main_copy_02'),
+    main_copy_03:     findLayerByName(node, '#main_copy_03'),
+    main_copy_04:     findLayerByName(node, '#main_copy_04'),
+    sub_copy:         findLayerByName(node, '#sub_copy'),
+    image_main:       findLayerByName(node, '#image_main'),
+    image_main_1:     findLayerByName(node, '#image_main_1'),
+    image_main_2:     findLayerByName(node, '#image_main_2'),
+    background_color: findLayerByName(node, '#background_color'),
+    badge:            findLayerByName(node, '#badge'),
   };
 }
 
-/** 섹션 선택 시 하위 프레임 목록 반환 */
+/** 섹션 선택 시 하위 프레임/컴포넌트 목록 반환 */
 export function getFramesFromSection(
   section: TraversableNode & { children: readonly TraversableNode[] }
 ): TraversableNode[] {
-  return section.children.filter((child) => (child as any).type === 'FRAME');
+  return section.children.filter((child) =>
+    (child as any).type === 'FRAME' || (child as any).type === 'COMPONENT'
+  );
 }

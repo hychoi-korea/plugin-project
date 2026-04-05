@@ -1,5 +1,8 @@
 // src/ui/imageInput.ts
 import type { ImageData } from '../types';
+import { generateBannerImage } from '../gemini';
+import { extractKeyColors, computeComplementaryColors, rgbToHex, getImageDataFromBase64 } from '../colorExtractor';
+import { sendToPlugin } from './main';
 
 type SlotId = 'main' | 'sub01' | 'sub02';
 
@@ -35,7 +38,8 @@ function isImageFile(file: File) {
 
 export function initImageInput(
   container: HTMLElement,
-  onChange: (images: { main: ImageData | null; sub01: ImageData | null; sub02: ImageData | null }) => void
+  onChange: (images: { main: ImageData | null; sub01: ImageData | null; sub02: ImageData | null }) => void,
+  getGeminiKey: () => string
 ) {
   const images: { main: ImageData | null; sub01: ImageData | null; sub02: ImageData | null } = {
     main: null, sub01: null, sub02: null,
@@ -59,8 +63,86 @@ export function initImageInput(
           </button>
         </div>
       `).join('')}
+
+      <!-- AI 이미지 생성 -->
+      <div style="margin-top:12px; padding-top:12px; border-top:1px solid #f0f0f0;">
+        <label style="font-weight:600;">✨ AI 이미지 생성 (Gemini)</label>
+        <div style="font-size:10px; color:#999; margin-bottom:6px;">메인 이미지 업로드 후 활성화됩니다</div>
+
+        <!-- 배경색 추천 -->
+        <div id="bg-color-section" style="display:none; margin-bottom:8px;">
+          <div style="font-size:11px; color:#555; margin-bottom:4px;">배경색 선택 (이미지에서 추출)</div>
+          <div id="bg-color-swatches" style="display:flex; gap:5px; flex-wrap:wrap; margin-bottom:4px;"></div>
+          <div class="row" style="gap:6px; align-items:center;">
+            <div id="bg-color-preview" style="width:22px; height:22px; border-radius:3px; border:1px solid #e0e0e0; background:#fff; flex-shrink:0;"></div>
+            <span id="bg-color-label" style="font-size:11px; color:#999;">선택 안 함 (AI 자동)</span>
+          </div>
+        </div>
+
+        <div class="row" style="gap:8px;">
+          <button class="btn-primary" id="btn-gen-image" style="flex:1; font-size:11px;" disabled>이미지 생성</button>
+          <div class="spinner" id="spinner-gen-image"></div>
+        </div>
+        <div id="gen-image-result" style="display:none; margin-top:8px;">
+          <img id="gen-image-preview" style="max-width:100%; border-radius:4px; margin-bottom:6px;">
+          <button class="btn-secondary" id="btn-use-gen-image" style="width:100%; font-size:11px;">이 이미지를 메인으로 사용</button>
+        </div>
+        <div class="error-msg" id="gen-image-error" style="display:none; margin-top:4px;"></div>
+      </div>
     </div>
   `;
+
+  const genBtn         = document.getElementById('btn-gen-image')      as HTMLButtonElement;
+  const genSpinner     = document.getElementById('spinner-gen-image')  as HTMLElement;
+  const genResult      = document.getElementById('gen-image-result')   as HTMLElement;
+  const genPreview     = document.getElementById('gen-image-preview')  as HTMLImageElement;
+  const genError       = document.getElementById('gen-image-error')    as HTMLElement;
+  const bgColorSection = document.getElementById('bg-color-section')   as HTMLElement;
+  const bgSwatchesEl   = document.getElementById('bg-color-swatches')  as HTMLElement;
+  const bgColorPreview = document.getElementById('bg-color-preview')   as HTMLElement;
+  const bgColorLabel   = document.getElementById('bg-color-label')     as HTMLElement;
+
+  let generatedImage: ImageData | null = null;
+  let selectedBgColor: string | null = null;
+
+  function updateGenBtn() {
+    genBtn.disabled = !images.main;
+  }
+
+  function selectBgColor(hex: string | null) {
+    selectedBgColor = hex;
+    bgColorPreview.style.background = hex ?? '#fff';
+    bgColorLabel.textContent = hex ?? '선택 안 함 (AI 자동)';
+    bgColorLabel.style.color = hex ? '#333' : '#999';
+    bgSwatchesEl.querySelectorAll<HTMLElement>('.bg-swatch').forEach((sw) => {
+      sw.style.outline = sw.dataset.hex === hex ? '2px solid #18A0FB' : 'none';
+    });
+  }
+
+  async function analyzeAndShowColors(mainImage: ImageData) {
+    const imgData = await getImageDataFromBase64(mainImage.base64, mainImage.mimeType);
+    if (!imgData) return;
+    const keyColors  = extractKeyColors(imgData, 4);
+    const compColors = computeComplementaryColors(keyColors, 2);
+    const allColors  = [...keyColors, ...compColors];
+
+    bgSwatchesEl.innerHTML = allColors.map((c) => {
+      const hex = rgbToHex(c);
+      return `<div class="bg-swatch" data-hex="${hex}"
+        title="${hex}"
+        style="width:22px; height:22px; background:${hex}; border-radius:4px; cursor:pointer; border:1px solid rgba(0,0,0,0.1); flex-shrink:0;">
+      </div>`;
+    }).join('');
+
+    bgSwatchesEl.querySelectorAll<HTMLElement>('.bg-swatch').forEach((sw) => {
+      sw.addEventListener('click', () => {
+        const hex = sw.dataset.hex ?? null;
+        selectBgColor(selectedBgColor === hex ? null : hex); // 재클릭 시 선택 해제
+      });
+    });
+
+    bgColorSection.style.display = 'block';
+  }
 
   SLOTS.forEach((slot) => {
     const dropZone  = document.getElementById(`drop-${slot.id}`)    as HTMLElement;
@@ -77,6 +159,12 @@ export function initImageInput(
       dropLabel.textContent = file.name;
       dropZone.style.borderColor = '#18A0FB';
       onChange({ ...images });
+      updateGenBtn();
+      // 메인 이미지 업로드 시 배경색 자동 분석
+      if (slot.id === 'main') {
+        selectBgColor(null);
+        analyzeAndShowColors(imageData);
+      }
     }
 
     // 클릭 → 파일 선택
@@ -129,11 +217,65 @@ export function initImageInput(
             dropLabel.textContent   = '클립보드에서 붙여넣기';
             dropZone.style.borderColor = '#18A0FB';
             onChange({ ...images });
+            updateGenBtn();
+            if (emptySlot.id === 'main') {
+              selectBgColor(null);
+              analyzeAndShowColors(imageData);
+            }
           }
           break;
         }
       }
     }
+  });
+
+  // AI 이미지 생성 버튼
+  genBtn.addEventListener('click', async () => {
+    const apiKey = getGeminiKey();
+    if (!apiKey) {
+      genError.textContent = 'Gemini API Key를 먼저 입력 후 저장해주세요.';
+      genError.style.display = 'block';
+      setTimeout(() => (genError.style.display = 'none'), 3000);
+      return;
+    }
+
+    const productImages = ([images.main, images.sub01, images.sub02] as (ImageData | null)[])
+      .filter((img): img is ImageData => img !== null);
+
+    genBtn.disabled = true;
+    genSpinner.style.display = 'block';
+    genResult.style.display  = 'none';
+    genError.style.display   = 'none';
+
+    try {
+      generatedImage = await generateBannerImage(productImages, '정사각형 (1:1)', apiKey, selectedBgColor ?? undefined);
+      genPreview.src = `data:${generatedImage.mimeType};base64,${generatedImage.base64}`;
+      genResult.style.display = 'block';
+      // 생성 즉시 Figma #image_main 레이어에 적용
+      sendToPlugin({ type: 'APPLY_GENERATED_IMAGE', imageData: generatedImage });
+    } catch (e: any) {
+      genError.textContent = e.message ?? 'AI 이미지 생성에 실패했습니다.';
+      genError.style.display = 'block';
+      setTimeout(() => (genError.style.display = 'none'), 5000);
+    } finally {
+      genBtn.disabled = !images.main;
+      genSpinner.style.display = 'none';
+    }
+  });
+
+  // 생성된 이미지를 메인으로 사용
+  document.getElementById('btn-use-gen-image')?.addEventListener('click', () => {
+    if (!generatedImage) return;
+    images.main = generatedImage;
+    const preview   = document.getElementById('preview-main')    as HTMLImageElement;
+    const dropLabel = document.getElementById('drop-label-main') as HTMLElement;
+    const dropZone  = document.getElementById('drop-main')       as HTMLElement;
+    preview.src = `data:${generatedImage.mimeType};base64,${generatedImage.base64}`;
+    preview.style.display = 'block';
+    dropLabel.textContent = 'AI 생성 이미지';
+    dropZone.style.borderColor = '#18A0FB';
+    onChange({ ...images });
+    genResult.style.display = 'none';
   });
 
   return {

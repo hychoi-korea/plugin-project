@@ -1,3 +1,995 @@
 "use strict";
 (() => {
+  var __defProp = Object.defineProperty;
+  var __getOwnPropSymbols = Object.getOwnPropertySymbols;
+  var __hasOwnProp = Object.prototype.hasOwnProperty;
+  var __propIsEnum = Object.prototype.propertyIsEnumerable;
+  var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+  var __spreadValues = (a, b) => {
+    for (var prop in b || (b = {}))
+      if (__hasOwnProp.call(b, prop))
+        __defNormalProp(a, prop, b[prop]);
+    if (__getOwnPropSymbols)
+      for (var prop of __getOwnPropSymbols(b)) {
+        if (__propIsEnum.call(b, prop))
+          __defNormalProp(a, prop, b[prop]);
+      }
+    return a;
+  };
+
+  // src/ui/apiSettings.ts
+  function initApiSettings(onSave) {
+    console.log("[banner] initApiSettings: start");
+    const claudeInput = document.getElementById("claude-key");
+    const geminiInput = document.getElementById("gemini-key");
+    const saveBtn = document.getElementById("btn-save-keys");
+    const savedMsg = document.getElementById("keys-saved");
+    const errorMsg = document.getElementById("keys-error");
+    console.log("[banner] elements:", { claudeInput, geminiInput, saveBtn, savedMsg, errorMsg });
+    function showError(msg) {
+      if (errorMsg) {
+        errorMsg.textContent = msg;
+        errorMsg.style.display = "block";
+        setTimeout(() => errorMsg.style.display = "none", 3e3);
+      }
+    }
+    if (!saveBtn) {
+      console.error("[banner] btn-save-keys NOT FOUND");
+      return { setKeys: () => {
+      }, getClaudeKey: () => "", getGeminiKey: () => "" };
+    }
+    saveBtn.addEventListener("click", () => {
+      console.log("[banner] save button clicked");
+      const claudeKey = claudeInput.value.trim();
+      const geminiKey = geminiInput.value.trim();
+      console.log("[banner] keys:", { claudeKey: claudeKey.slice(0, 8) + "...", geminiKey: geminiKey.slice(0, 8) + "..." });
+      if (!claudeKey && !geminiKey) {
+        showError("Claude API Key\uC640 Gemini API Key\uB97C \uBAA8\uB450 \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+        return;
+      }
+      if (!claudeKey) {
+        showError("Claude API Key\uB97C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+        return;
+      }
+      if (!geminiKey) {
+        showError("Gemini API Key\uB97C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+        return;
+      }
+      if (errorMsg) errorMsg.style.display = "none";
+      onSave(claudeKey, geminiKey);
+      savedMsg.style.display = "inline";
+      setTimeout(() => savedMsg.style.display = "none", 2e3);
+    });
+    console.log("[banner] initApiSettings: click handler attached");
+    return {
+      setKeys(claudeKey, geminiKey) {
+        claudeInput.value = claudeKey;
+        geminiInput.value = geminiKey;
+      },
+      getClaudeKey: () => claudeInput.value.trim(),
+      getGeminiKey: () => geminiInput.value.trim()
+    };
+  }
+
+  // src/gemini.ts
+  var GEMINI_MODEL = "gemini-2.5-flash-image";
+  var GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+  var IMAGE_GENERATION_PROMPT = `[Role & Purpose]
+\uB2F9\uC2E0\uC740 \uC804\uBB38 \uC81C\uD488 \uD569\uC131 \uC0AC\uC9C4\uC791\uAC00\uC785\uB2C8\uB2E4. \uCCA8\uBD80\uB41C \uC81C\uD488 \uC774\uBBF8\uC9C0\uB4E4\uC744 \uBC30\uACBD\uC5D0 \uC790\uC5F0\uC2A4\uB7FD\uAC8C \uD569\uC131\uD558\uC5EC \uD558\uB098\uC758 \uC644\uC131\uB41C \uC81C\uD488 \uC774\uBBF8\uC9C0\uB97C \uC0DD\uC131\uD569\uB2C8\uB2E4.
+
+[Core Rules]
+- PRODUCT ONLY: \uC81C\uD488 \uC774\uBBF8\uC9C0\uB9CC \uC0AC\uC6A9. \uC0AC\uB78C \uC190, \uC2E0\uCCB4 \uBD80\uC704 \uC808\uB300 \uD3EC\uD568 \uBD88\uAC00
+- COMPOSITE: \uC81C\uD488\uC744 \uBC30\uACBD\uC758 \uC870\uBA85 \uBC29\uD5A5, \uC0C9\uC628\uB3C4, \uBC1D\uAE30(\uC870\uB3C4)\uC5D0 \uC815\uD655\uD788 \uB9DE\uCDB0 \uD569\uC131
+- \uC81C\uD488\uC758 \uADF8\uB9BC\uC790\uC640 \uBC18\uC0AC\uAD11\uC744 \uBC30\uACBD \uD658\uACBD\uC5D0 \uB9DE\uAC8C \uC790\uC5F0\uC2A4\uB7FD\uAC8C \uC0DD\uC131
+- \uC81C\uD488 \uC6D0\uBCF8 \uB514\uC790\uC778, \uB77C\uBCA8, \uC0C9\uC0C1 \uC808\uB300 \uBCC0\uD615 \uBD88\uAC00
+
+[Layout Rules]
+- \uC81C\uD488\uC740 \uD654\uBA74 \uC911\uC559\uC5D0 \uBC30\uCE58, \uC0AC\uBC29\uC73C\uB85C \uCDA9\uBD84\uD55C \uC5EC\uBC31 \uD655\uBCF4 (\uD654\uBA74\uC758 30% \uC774\uC0C1)
+- \uC81C\uD488\uC774 \uD654\uBA74 \uBC16\uC73C\uB85C \uC798\uB9AC\uC9C0 \uC54A\uB3C4\uB85D \uAD6C\uB3C4 \uC124\uC815
+- \uBCF5\uC218 \uC81C\uD488\uC758 \uACBD\uC6B0 \uC790\uC5F0\uC2A4\uB7EC\uC6B4 \uADF8\uB8F9 \uBC30\uCE58
+
+[Strict Constraints]
+- NO HANDS, NO BODY PARTS: \uC190, \uD314 \uB4F1 \uC2E0\uCCB4 \uC77C\uC808 \uC0DD\uC131 \uAE08\uC9C0
+- NO TEXT, NO LOGO, NO WATERMARK: \uD14D\uC2A4\uD2B8, \uB85C\uACE0, \uC6CC\uD130\uB9C8\uD06C \uC808\uB300 \uC0DD\uC131 \uBD88\uAC00
+- NO CROP: \uD53C\uC0AC\uCCB4\uAC00 \uD654\uBA74 \uBC16\uC73C\uB85C \uC798\uB9AC\uB294 \uAD6C\uB3C4 \uAE08\uC9C0`;
+  async function generateBannerImage(productImages, bannerSize, apiKey, backgroundColor) {
+    var _a2, _b, _c, _d, _e, _f, _g;
+    const imageParts = productImages.map((img) => ({
+      inlineData: {
+        mimeType: img.mimeType,
+        data: img.base64
+      }
+    }));
+    const bgInstruction = backgroundColor ? `
+
+[\uBC30\uACBD\uC0C9 \uC9C0\uC815] \uBC30\uACBD\uC0C9\uC744 \uBC18\uB4DC\uC2DC ${backgroundColor} (HEX) \uC0C9\uC0C1\uC73C\uB85C \uC0AC\uC6A9\uD558\uC138\uC694. \uC774 \uC0C9\uC0C1\uC744 \uAE30\uBC18\uC73C\uB85C \uC804\uCCB4 \uBC30\uACBD\uACFC \uBD84\uC704\uAE30\uB97C \uAD6C\uC131\uD558\uC138\uC694.` : "";
+    const textPart = {
+      text: `${IMAGE_GENERATION_PROMPT}${bgInstruction}
+
+\uBC30\uB108 \uC0AC\uC774\uC988: ${bannerSize}
+\uCCA8\uBD80\uB41C \uC81C\uD488 \uC774\uBBF8\uC9C0 ${productImages.length}\uC7A5\uC744 \uD65C\uC6A9\uD558\uC5EC \uC704 \uC9C0\uCE68\uC5D0 \uB9DE\uB294 \uB77C\uC774\uD504\uC2A4\uD0C0\uC77C \uC5F0\uCD9C \uC774\uBBF8\uC9C0\uB97C \uC0DD\uC131\uD574\uC8FC\uC138\uC694.`
+    };
+    const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [...imageParts, textPart] }],
+        generationConfig: { responseModalities: ["IMAGE", "TEXT"] }
+      })
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(`Gemini API \uC624\uB958 (${response.status}): ${(_b = (_a2 = err == null ? void 0 : err.error) == null ? void 0 : _a2.message) != null ? _b : "\uC54C \uC218 \uC5C6\uB294 \uC624\uB958"}`);
+    }
+    const data = await response.json();
+    const parts = (_f = (_e = (_d = (_c = data == null ? void 0 : data.candidates) == null ? void 0 : _c[0]) == null ? void 0 : _d.content) == null ? void 0 : _e.parts) != null ? _f : [];
+    const imagePart = parts.find((p) => {
+      var _a3;
+      return (_a3 = p.inlineData) == null ? void 0 : _a3.data;
+    });
+    if (!imagePart) throw new Error("\uC774\uBBF8\uC9C0 \uB370\uC774\uD130\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. Gemini \uC751\uB2F5\uC5D0 \uC774\uBBF8\uC9C0\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    return {
+      base64: imagePart.inlineData.data,
+      mimeType: (_g = imagePart.inlineData.mimeType) != null ? _g : "image/png"
+    };
+  }
+
+  // src/colorExtractor.ts
+  function rgbToHex(color) {
+    return "#" + [color.r, color.g, color.b].map((v) => Math.round(v).toString(16).padStart(2, "0").toUpperCase()).join("");
+  }
+  function rgbToHsl(c) {
+    const r = c.r / 255, g = c.g / 255, b = c.b / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    const l = (max + min) / 2;
+    if (max === min) return [0, 0, l];
+    const d = max - min;
+    const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    let h = 0;
+    if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+    else if (max === g) h = ((b - r) / d + 2) / 6;
+    else h = ((r - g) / d + 4) / 6;
+    return [h, s, l];
+  }
+  function hslToRgb(h, s, l) {
+    const hue2rgb = (p2, q2, t) => {
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1 / 6) return p2 + (q2 - p2) * 6 * t;
+      if (t < 1 / 2) return q2;
+      if (t < 2 / 3) return p2 + (q2 - p2) * (2 / 3 - t) * 6;
+      return p2;
+    };
+    if (s === 0) {
+      const v = Math.round(l * 255);
+      return { r: v, g: v, b: v };
+    }
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    return {
+      r: Math.round(hue2rgb(p, q, h + 1 / 3) * 255),
+      g: Math.round(hue2rgb(p, q, h) * 255),
+      b: Math.round(hue2rgb(p, q, h - 1 / 3) * 255)
+    };
+  }
+  function quantize(c) {
+    const q = (v) => Math.round(v / 16) * 16;
+    return `${q(c.r)},${q(c.g)},${q(c.b)}`;
+  }
+  function extractKeyColors(imageData, n = 3) {
+    const { data, width, height } = imageData;
+    const freq = /* @__PURE__ */ new Map();
+    const step = 4;
+    for (let y = 0; y < height; y += step) {
+      for (let x = 0; x < width; x += step) {
+        const i = (y * width + x) * 4;
+        if (data[i + 3] < 128) continue;
+        const color = { r: data[i], g: data[i + 1], b: data[i + 2] };
+        const key = quantize(color);
+        const entry = freq.get(key);
+        if (entry) entry.count++;
+        else freq.set(key, { color, count: 1 });
+      }
+    }
+    return Array.from(freq.values()).sort((a, b) => b.count - a.count).slice(0, n).map((e) => e.color);
+  }
+  function computeComplementaryColors(colors, n = 3) {
+    return colors.slice(0, n).map((c) => {
+      const [h, s, l] = rgbToHsl(c);
+      const compH = (h + 0.5) % 1;
+      const adjS = Math.max(0.4, Math.min(0.8, s));
+      const adjL = Math.max(0.35, Math.min(0.75, l));
+      return hslToRgb(compH, adjS, adjL);
+    });
+  }
+  function getImageDataFromElement(img) {
+    const canvas = document.createElement("canvas");
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(img, 0, 0);
+    return ctx.getImageData(0, 0, canvas.width, canvas.height);
+  }
+  function getImageDataFromBase64(base64, mimeType) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve(getImageDataFromElement(img));
+      img.onerror = () => resolve(null);
+      img.src = `data:${mimeType};base64,${base64}`;
+    });
+  }
+
+  // src/ui/imageInput.ts
+  var SLOTS = [
+    { id: "main", label: "\uBA54\uC778 \uC774\uBBF8\uC9C0", required: true },
+    { id: "sub01", label: "\uC11C\uBE0C \uC774\uBBF8\uC9C0 1", required: false },
+    { id: "sub02", label: "\uC11C\uBE0C \uC774\uBBF8\uC9C0 2", required: false }
+  ];
+  function fileToImageData(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        var _a2;
+        const result = reader.result;
+        const [header, base64] = result.split(",");
+        const mimeType = (_a2 = header.match(/data:(.*);base64/)) == null ? void 0 : _a2[1];
+        resolve({ base64, mimeType });
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+  function isImageFile(file) {
+    return file.type.startsWith("image/");
+  }
+  function initImageInput(container, onChange, getGeminiKey) {
+    var _a2;
+    const images = {
+      main: null,
+      sub01: null,
+      sub02: null
+    };
+    container.innerHTML = `
+    <div class="section-title" data-target="body-image">\u{1F5BC}\uFE0F \uC774\uBBF8\uC9C0 \uC785\uB825 <span class="toggle-icon">\u25BC</span></div>
+    <div class="section-body open" id="body-image">
+      ${SLOTS.map((slot) => `
+        <div style="margin-bottom:8px;">
+          <label>${slot.label}${slot.required ? " *" : ""}</label>
+          <div class="drop-zone" id="drop-${slot.id}"
+            style="border:2px dashed #e0e0e0; border-radius:6px; padding:12px; text-align:center; cursor:pointer; position:relative; min-height:60px; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:4px; font-size:11px; color:#999;">
+            <span id="drop-label-${slot.id}">\uB4DC\uB798\uADF8 \uC564 \uB4DC\uB86D \uB610\uB294 \uD074\uB9AD\uD558\uC5EC \uC120\uD0DD</span>
+            <span style="font-size:10px;">\uD074\uB9BD\uBCF4\uB4DC \uBD99\uC5EC\uB123\uAE30(Ctrl+V)\uB3C4 \uAC00\uB2A5</span>
+            <input type="file" accept="image/*" style="display:none" id="file-${slot.id}">
+            <img id="preview-${slot.id}" style="max-width:100%; max-height:80px; display:none; border-radius:4px; margin-top:4px;">
+          </div>
+          <button class="btn-secondary" id="btn-figma-${slot.id}" style="margin-top:4px; width:100%; font-size:11px;">
+            \uD53C\uADF8\uB9C8 \uB808\uC774\uC5B4\uC5D0\uC11C \uAC00\uC838\uC624\uAE30
+          </button>
+        </div>
+      `).join("")}
+
+      <!-- AI \uC774\uBBF8\uC9C0 \uC0DD\uC131 -->
+      <div style="margin-top:12px; padding-top:12px; border-top:1px solid #f0f0f0;">
+        <label style="font-weight:600;">\u2728 AI \uC774\uBBF8\uC9C0 \uC0DD\uC131 (Gemini)</label>
+        <div style="font-size:10px; color:#999; margin-bottom:6px;">\uBA54\uC778 \uC774\uBBF8\uC9C0 \uC5C5\uB85C\uB4DC \uD6C4 \uD65C\uC131\uD654\uB429\uB2C8\uB2E4</div>
+
+        <!-- \uBC30\uACBD\uC0C9 \uCD94\uCC9C -->
+        <div id="bg-color-section" style="display:none; margin-bottom:8px;">
+          <div style="font-size:11px; color:#555; margin-bottom:4px;">\uBC30\uACBD\uC0C9 \uC120\uD0DD (\uC774\uBBF8\uC9C0\uC5D0\uC11C \uCD94\uCD9C)</div>
+          <div id="bg-color-swatches" style="display:flex; gap:5px; flex-wrap:wrap; margin-bottom:4px;"></div>
+          <div class="row" style="gap:6px; align-items:center;">
+            <div id="bg-color-preview" style="width:22px; height:22px; border-radius:3px; border:1px solid #e0e0e0; background:#fff; flex-shrink:0;"></div>
+            <span id="bg-color-label" style="font-size:11px; color:#999;">\uC120\uD0DD \uC548 \uD568 (AI \uC790\uB3D9)</span>
+          </div>
+        </div>
+
+        <div class="row" style="gap:8px;">
+          <button class="btn-primary" id="btn-gen-image" style="flex:1; font-size:11px;" disabled>\uC774\uBBF8\uC9C0 \uC0DD\uC131</button>
+          <div class="spinner" id="spinner-gen-image"></div>
+        </div>
+        <div id="gen-image-result" style="display:none; margin-top:8px;">
+          <img id="gen-image-preview" style="max-width:100%; border-radius:4px; margin-bottom:6px;">
+          <button class="btn-secondary" id="btn-use-gen-image" style="width:100%; font-size:11px;">\uC774 \uC774\uBBF8\uC9C0\uB97C \uBA54\uC778\uC73C\uB85C \uC0AC\uC6A9</button>
+        </div>
+        <div class="error-msg" id="gen-image-error" style="display:none; margin-top:4px;"></div>
+      </div>
+    </div>
+  `;
+    const genBtn = document.getElementById("btn-gen-image");
+    const genSpinner = document.getElementById("spinner-gen-image");
+    const genResult = document.getElementById("gen-image-result");
+    const genPreview = document.getElementById("gen-image-preview");
+    const genError = document.getElementById("gen-image-error");
+    const bgColorSection = document.getElementById("bg-color-section");
+    const bgSwatchesEl = document.getElementById("bg-color-swatches");
+    const bgColorPreview = document.getElementById("bg-color-preview");
+    const bgColorLabel = document.getElementById("bg-color-label");
+    let generatedImage = null;
+    let selectedBgColor = null;
+    function updateGenBtn() {
+      genBtn.disabled = !images.main;
+    }
+    function selectBgColor(hex) {
+      selectedBgColor = hex;
+      bgColorPreview.style.background = hex != null ? hex : "#fff";
+      bgColorLabel.textContent = hex != null ? hex : "\uC120\uD0DD \uC548 \uD568 (AI \uC790\uB3D9)";
+      bgColorLabel.style.color = hex ? "#333" : "#999";
+      bgSwatchesEl.querySelectorAll(".bg-swatch").forEach((sw) => {
+        sw.style.outline = sw.dataset.hex === hex ? "2px solid #18A0FB" : "none";
+      });
+    }
+    async function analyzeAndShowColors(mainImage) {
+      const imgData = await getImageDataFromBase64(mainImage.base64, mainImage.mimeType);
+      if (!imgData) return;
+      const keyColors = extractKeyColors(imgData, 4);
+      const compColors = computeComplementaryColors(keyColors, 2);
+      const allColors = [...keyColors, ...compColors];
+      bgSwatchesEl.innerHTML = allColors.map((c) => {
+        const hex = rgbToHex(c);
+        return `<div class="bg-swatch" data-hex="${hex}"
+        title="${hex}"
+        style="width:22px; height:22px; background:${hex}; border-radius:4px; cursor:pointer; border:1px solid rgba(0,0,0,0.1); flex-shrink:0;">
+      </div>`;
+      }).join("");
+      bgSwatchesEl.querySelectorAll(".bg-swatch").forEach((sw) => {
+        sw.addEventListener("click", () => {
+          var _a3;
+          const hex = (_a3 = sw.dataset.hex) != null ? _a3 : null;
+          selectBgColor(selectedBgColor === hex ? null : hex);
+        });
+      });
+      bgColorSection.style.display = "block";
+    }
+    SLOTS.forEach((slot) => {
+      var _a3;
+      const dropZone = document.getElementById(`drop-${slot.id}`);
+      const fileInput = document.getElementById(`file-${slot.id}`);
+      const preview = document.getElementById(`preview-${slot.id}`);
+      const dropLabel = document.getElementById(`drop-label-${slot.id}`);
+      async function applyFile(file) {
+        if (!isImageFile(file)) return;
+        const imageData = await fileToImageData(file);
+        images[slot.id] = imageData;
+        preview.src = `data:${imageData.mimeType};base64,${imageData.base64}`;
+        preview.style.display = "block";
+        dropLabel.textContent = file.name;
+        dropZone.style.borderColor = "#18A0FB";
+        onChange(__spreadValues({}, images));
+        updateGenBtn();
+        if (slot.id === "main") {
+          selectBgColor(null);
+          analyzeAndShowColors(imageData);
+        }
+      }
+      dropZone.addEventListener("click", () => fileInput.click());
+      fileInput.addEventListener("change", () => {
+        var _a4;
+        if ((_a4 = fileInput.files) == null ? void 0 : _a4[0]) applyFile(fileInput.files[0]);
+      });
+      dropZone.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        dropZone.style.borderColor = "#18A0FB";
+        dropZone.style.background = "#f0f8ff";
+      });
+      dropZone.addEventListener("dragleave", () => {
+        dropZone.style.borderColor = "#e0e0e0";
+        dropZone.style.background = "";
+      });
+      dropZone.addEventListener("drop", (e) => {
+        var _a4;
+        e.preventDefault();
+        dropZone.style.borderColor = "#e0e0e0";
+        dropZone.style.background = "";
+        const file = (_a4 = e.dataTransfer) == null ? void 0 : _a4.files[0];
+        if (file) applyFile(file);
+      });
+      (_a3 = document.getElementById(`btn-figma-${slot.id}`)) == null ? void 0 : _a3.addEventListener("click", () => {
+        alert("\uD53C\uADF8\uB9C8 \uCE94\uBC84\uC2A4\uC5D0\uC11C \uC774\uBBF8\uC9C0 \uB808\uC774\uC5B4\uB97C \uC120\uD0DD\uD55C \uD6C4 \uC774 \uBC84\uD2BC\uC744 \uB204\uB974\uC138\uC694.");
+      });
+    });
+    document.addEventListener("paste", async (e) => {
+      var _a3;
+      const items = (_a3 = e.clipboardData) == null ? void 0 : _a3.items;
+      if (!items) return;
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (file) {
+            const emptySlot = SLOTS.find((s) => !images[s.id]);
+            if (emptySlot) {
+              const dropZone = document.getElementById(`drop-${emptySlot.id}`);
+              const preview = document.getElementById(`preview-${emptySlot.id}`);
+              const dropLabel = document.getElementById(`drop-label-${emptySlot.id}`);
+              const imageData = await fileToImageData(file);
+              images[emptySlot.id] = imageData;
+              preview.src = `data:${imageData.mimeType};base64,${imageData.base64}`;
+              preview.style.display = "block";
+              dropLabel.textContent = "\uD074\uB9BD\uBCF4\uB4DC\uC5D0\uC11C \uBD99\uC5EC\uB123\uAE30";
+              dropZone.style.borderColor = "#18A0FB";
+              onChange(__spreadValues({}, images));
+              updateGenBtn();
+              if (emptySlot.id === "main") {
+                selectBgColor(null);
+                analyzeAndShowColors(imageData);
+              }
+            }
+            break;
+          }
+        }
+      }
+    });
+    genBtn.addEventListener("click", async () => {
+      var _a3;
+      const apiKey = getGeminiKey();
+      if (!apiKey) {
+        genError.textContent = "Gemini API Key\uB97C \uBA3C\uC800 \uC785\uB825 \uD6C4 \uC800\uC7A5\uD574\uC8FC\uC138\uC694.";
+        genError.style.display = "block";
+        setTimeout(() => genError.style.display = "none", 3e3);
+        return;
+      }
+      const productImages = [images.main, images.sub01, images.sub02].filter((img) => img !== null);
+      genBtn.disabled = true;
+      genSpinner.style.display = "block";
+      genResult.style.display = "none";
+      genError.style.display = "none";
+      try {
+        generatedImage = await generateBannerImage(productImages, "\uC815\uC0AC\uAC01\uD615 (1:1)", apiKey, selectedBgColor != null ? selectedBgColor : void 0);
+        genPreview.src = `data:${generatedImage.mimeType};base64,${generatedImage.base64}`;
+        genResult.style.display = "block";
+        sendToPlugin({ type: "APPLY_GENERATED_IMAGE", imageData: generatedImage });
+      } catch (e) {
+        genError.textContent = (_a3 = e.message) != null ? _a3 : "AI \uC774\uBBF8\uC9C0 \uC0DD\uC131\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+        genError.style.display = "block";
+        setTimeout(() => genError.style.display = "none", 5e3);
+      } finally {
+        genBtn.disabled = !images.main;
+        genSpinner.style.display = "none";
+      }
+    });
+    (_a2 = document.getElementById("btn-use-gen-image")) == null ? void 0 : _a2.addEventListener("click", () => {
+      if (!generatedImage) return;
+      images.main = generatedImage;
+      const preview = document.getElementById("preview-main");
+      const dropLabel = document.getElementById("drop-label-main");
+      const dropZone = document.getElementById("drop-main");
+      preview.src = `data:${generatedImage.mimeType};base64,${generatedImage.base64}`;
+      preview.style.display = "block";
+      dropLabel.textContent = "AI \uC0DD\uC131 \uC774\uBBF8\uC9C0";
+      dropZone.style.borderColor = "#18A0FB";
+      onChange(__spreadValues({}, images));
+      genResult.style.display = "none";
+    });
+    return {
+      getImages: () => __spreadValues({}, images)
+    };
+  }
+
+  // src/claude.ts
+  var CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
+  var MODEL = "claude-sonnet-4-6";
+  var SYSTEM_PROMPT = `\uB2F9\uC2E0\uC740 \uBC30\uB108 \uCE74\uD53C \uC804\uBB38\uAC00\uC785\uB2C8\uB2E4. \uC544\uC774\uB514\uC5B4\uC2A4(\uD55C\uAD6D \uD578\uB4DC\uBA54\uC774\uB4DC \uB9C8\uCF13) \uBC30\uB108\uC5D0 \uB4E4\uC5B4\uAC08 \uCE74\uD53C\uB97C \uC791\uC131\uD569\uB2C8\uB2E4.
+
+\uB2E4\uC74C \uC81C\uC57D \uC870\uAC74\uC744 \uBC18\uB4DC\uC2DC \uC9C0\uCF1C\uC8FC\uC138\uC694:
+- \uBA54\uC778 \uCE74\uD53C \uC804\uCCB4(main_copy_03): \uACF5\uBC31 \uD3EC\uD568 \uCD5C\uB300 16\uC790
+- \uBA54\uC778 \uCE74\uD53C \uC55E\uBD80\uBD84(main_copy_01): \uC5B4\uC808 \uACBD\uACC4 \uAE30\uC900 \uCD5C\uB300 8\uC790 (main_copy_03\uC758 \uC55E\uBD80\uBD84)
+- \uBA54\uC778 \uCE74\uD53C \uB4B7\uBD80\uBD84(main_copy_02): \uC5B4\uC808 \uACBD\uACC4 \uAE30\uC900 \uCD5C\uB300 8\uC790 (main_copy_03\uC758 \uB4B7\uBD80\uBD84)
+- m_band\uC6A9 \uC694\uC57D(main_copy_04): \uACF5\uBC31 \uD3EC\uD568 \uCD5C\uB300 11\uC790 (\uBA54\uC778 \uCE74\uD53C\uC758 \uD575\uC2EC\uC744 \uC555\uCD95)
+- \uC11C\uBE0C \uCE74\uD53C(sub_copy): \uACF5\uBC31 \uD3EC\uD568 \uCD5C\uB300 16\uC790
+
+\uBC18\uB4DC\uC2DC \uC544\uB798 JSON \uD615\uC2DD\uC73C\uB85C\uB9CC \uC751\uB2F5\uD558\uC138\uC694. JSON \uC678 \uB2E4\uB978 \uD14D\uC2A4\uD2B8\uB294 \uC808\uB300 \uCD9C\uB825\uD558\uC9C0 \uB9C8\uC138\uC694:
+{
+  "main_copy_01": "\uC55E\uBD80\uBD84",
+  "main_copy_02": "\uB4B7\uBD80\uBD84",
+  "main_copy_03": "\uC804\uCCB4 \uBA54\uC778 \uCE74\uD53C",
+  "main_copy_04": "\uC694\uC57D",
+  "sub_copy": "\uC11C\uBE0C \uCE74\uD53C"
+}`;
+  async function callClaude(userMessage, apiKey) {
+    var _a2, _b;
+    const response = await fetch(CLAUDE_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: 512,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: "user", content: userMessage }]
+      })
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(`Claude API \uC624\uB958 (${response.status}): ${(_b = (_a2 = err == null ? void 0 : err.error) == null ? void 0 : _a2.message) != null ? _b : "\uC54C \uC218 \uC5C6\uB294 \uC624\uB958"}`);
+    }
+    const data = await response.json();
+    const text = data.content[0].text;
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("Claude \uC751\uB2F5\uC5D0\uC11C JSON\uC744 \uD30C\uC2F1\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const parsed = JSON.parse(jsonMatch[0]);
+    return parsed;
+  }
+  async function generateCopy(input, apiKey) {
+    return callClaude(
+      `\uB2E4\uC74C \uB0B4\uC6A9\uC744 \uBC14\uD0D5\uC73C\uB85C \uBC30\uB108 \uCE74\uD53C\uB97C \uC0DD\uC131\uD574\uC8FC\uC138\uC694:
+${input}`,
+      apiKey
+    );
+  }
+  async function refineCopy(draft, apiKey) {
+    return callClaude(
+      `\uB2E4\uC74C \uCE74\uD53C \uCD08\uC548\uC744 \uAE00\uC790\uC218 \uC81C\uD55C\uC5D0 \uB9DE\uAC8C \uC790\uC5F0\uC2A4\uB7FD\uAC8C \uB2E4\uB4EC\uC5B4\uC8FC\uC138\uC694:
+${draft}`,
+      apiKey
+    );
+  }
+
+  // src/ui/copyWriter.ts
+  function initCopyWriter(container, getClaudeKey, onChange) {
+    var _a2, _b, _c;
+    container.innerHTML = `
+    <div class="section-title" data-target="body-copy">\u270D\uFE0F \uCE74\uD53C \uC791\uC131 <span class="toggle-icon">\u25BC</span></div>
+    <div class="section-body open" id="body-copy">
+      <label>\uD0A4\uC6CC\uB4DC / \uC124\uBA85 (AI \uC0DD\uC131\uC6A9)</label>
+      <div class="row">
+        <input type="text" id="copy-keyword" placeholder="\uC608: \uC5EC\uB984 \uD560\uC778 \uC774\uBCA4\uD2B8, \uD578\uB4DC\uBA54\uC774\uB4DC \uAC00\uBC29" style="flex:1">
+        <button class="btn-primary" id="btn-generate">AI \uC0DD\uC131</button>
+        <div class="spinner" id="spinner-generate"></div>
+      </div>
+
+      <div style="margin-top:12px; padding-top:12px; border-top:1px solid #f0f0f0;">
+        <label>\uBA54\uC778 \uCE74\uD53C \uCD08\uC548 (\uCD5C\uB300 16\uC790)</label>
+        <div class="row">
+          <input type="text" id="main-copy-input" maxlength="20" placeholder="\uC9C1\uC811 \uC785\uB825 \uD6C4 AI \uB2E4\uB4EC\uAE30" style="flex:1">
+          <button class="btn-secondary" id="btn-refine">AI \uB2E4\uB4EC\uAE30</button>
+          <div class="spinner" id="spinner-refine"></div>
+        </div>
+        <div class="char-count" id="main-count">0 / 16\uC790</div>
+
+        <label>\uC11C\uBE0C \uCE74\uD53C \uCD08\uC548 (\uCD5C\uB300 16\uC790)</label>
+        <input type="text" id="sub-copy-input" maxlength="20" placeholder="\uC11C\uBE0C \uCE74\uD53C \uC785\uB825">
+        <div class="char-count" id="sub-count">0 / 16\uC790</div>
+      </div>
+
+      <div style="margin-top:12px; padding-top:12px; border-top:1px solid #f0f0f0; display:none" id="copy-result-area">
+        <label style="color:#18A0FB; font-weight:600;">AI \uC0DD\uC131 \uACB0\uACFC</label>
+        <div style="background:#f8f8f8; border-radius:4px; padding:8px; margin-top:4px; font-size:11px; line-height:1.8;" id="copy-result"></div>
+        <button class="btn-primary" id="btn-use-copy" style="margin-top:6px; width:100%;">\uC774 \uCE74\uD53C \uC0AC\uC6A9</button>
+      </div>
+    </div>
+  `;
+    let generatedCopy = null;
+    const mainInput = document.getElementById("main-copy-input");
+    const subInput = document.getElementById("sub-copy-input");
+    const mainCount = document.getElementById("main-count");
+    const subCount = document.getElementById("sub-count");
+    mainInput.addEventListener("input", () => {
+      const len = mainInput.value.length;
+      mainCount.textContent = `${len} / 16\uC790`;
+      mainCount.className = `char-count${len > 16 ? " over" : ""}`;
+    });
+    subInput.addEventListener("input", () => {
+      const len = subInput.value.length;
+      subCount.textContent = `${len} / 16\uC790`;
+      subCount.className = `char-count${len > 16 ? " over" : ""}`;
+    });
+    function setLoading(spinnerId, btnId, loading) {
+      document.getElementById(spinnerId).style.display = loading ? "block" : "none";
+      document.getElementById(btnId).disabled = loading;
+    }
+    function showResult(copy) {
+      generatedCopy = copy;
+      const area = document.getElementById("copy-result-area");
+      const result = document.getElementById("copy-result");
+      area.style.display = "block";
+      result.innerHTML = `
+      <div>\uBA54\uC778: <strong>${copy.main_copy_03}</strong></div>
+      <div style="color:#999; font-size:10px;">&nbsp;&nbsp;\uC55E: ${copy.main_copy_01} / \uB4A4: ${copy.main_copy_02}</div>
+      <div style="color:#999; font-size:10px;">&nbsp;&nbsp;\uBC34\uB4DC\uC6A9(11\uC790): ${copy.main_copy_04}</div>
+      <div>\uC11C\uBE0C: <strong>${copy.sub_copy}</strong></div>
+    `;
+    }
+    (_a2 = document.getElementById("btn-generate")) == null ? void 0 : _a2.addEventListener("click", async () => {
+      const keyword = document.getElementById("copy-keyword").value.trim();
+      if (!keyword) {
+        alert("\uD0A4\uC6CC\uB4DC\uB97C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+        return;
+      }
+      const apiKey = getClaudeKey();
+      if (!apiKey) {
+        alert("Claude API Key\uB97C \uBA3C\uC800 \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+        return;
+      }
+      setLoading("spinner-generate", "btn-generate", true);
+      try {
+        const copy = await generateCopy(keyword, apiKey);
+        showResult(copy);
+      } catch (e) {
+        alert(e.message);
+      } finally {
+        setLoading("spinner-generate", "btn-generate", false);
+      }
+    });
+    (_b = document.getElementById("btn-refine")) == null ? void 0 : _b.addEventListener("click", async () => {
+      const draft = mainInput.value.trim();
+      if (!draft) {
+        alert("\uCE74\uD53C \uCD08\uC548\uC744 \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+        return;
+      }
+      const apiKey = getClaudeKey();
+      if (!apiKey) {
+        alert("Claude API Key\uB97C \uBA3C\uC800 \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+        return;
+      }
+      setLoading("spinner-refine", "btn-refine", true);
+      try {
+        const refined = await refineCopy(draft, apiKey);
+        showResult(refined);
+      } catch (e) {
+        alert(e.message);
+      } finally {
+        setLoading("spinner-refine", "btn-refine", false);
+      }
+    });
+    (_c = document.getElementById("btn-use-copy")) == null ? void 0 : _c.addEventListener("click", () => {
+      if (!generatedCopy) return;
+      mainInput.value = generatedCopy.main_copy_03;
+      subInput.value = generatedCopy.sub_copy;
+      mainCount.textContent = `${generatedCopy.main_copy_03.length} / 16\uC790`;
+      subCount.textContent = `${generatedCopy.sub_copy.length} / 16\uC790`;
+      onChange(generatedCopy);
+      document.getElementById("copy-result-area").style.display = "none";
+    });
+    return {
+      getCopy() {
+        if (!mainInput.value.trim()) return null;
+        return generatedCopy != null ? generatedCopy : {
+          main_copy_01: mainInput.value.slice(0, 8).trim(),
+          main_copy_02: mainInput.value.slice(8).trim(),
+          main_copy_03: mainInput.value.trim(),
+          main_copy_04: mainInput.value.slice(0, 11).trim(),
+          sub_copy: subInput.value.trim()
+        };
+      }
+    };
+  }
+
+  // src/palette.ts
+  var IDEAS_PALETTE = {
+    deep: [
+      { name: "\uB525 \uC624\uB80C\uC9C0", hex: "#C19025" },
+      { name: "\uB525 \uB808\uB4DC", hex: "#A83232" },
+      { name: "\uB525 \uD551\uD06C", hex: "#C14878" },
+      { name: "\uB525 \uBC14\uC774\uC62C\uB81B", hex: "#7C3D8A" },
+      { name: "\uB525 \uD37C\uD50C", hex: "#4A3580" },
+      { name: "\uB525 \uBE14\uB8E8", hex: "#1E3F82" },
+      { name: "\uB525 \uBBFC\uD2B8", hex: "#1A6E6A" },
+      { name: "\uB525 \uADF8\uB9B0", hex: "#2A5C30" },
+      { name: "\uB525 \uB77C\uC784", hex: "#4A7010" },
+      { name: "\uB525 \uCE74\uD0A4", hex: "#5C4E20" },
+      { name: "\uB525 \uB808\uBAAC", hex: "#8A7A10" },
+      { name: "\uB525 \uC610\uB85C\uC6B0", hex: "#A88A10" },
+      { name: "\uB525 \uBE0C\uB77C\uC6B4", hex: "#6B3A1A" }
+    ],
+    vivid: [
+      { name: "\uBE44\uBE44\uB4DC \uC624\uB80C\uC9C0", hex: "#FF6B00" },
+      { name: "\uBE44\uBE44\uB4DC \uB808\uB4DC", hex: "#FF2020" },
+      { name: "\uBE44\uBE44\uB4DC \uD551\uD06C", hex: "#FF3D8A" },
+      { name: "\uBE44\uBE44\uB4DC \uBC14\uC774\uC62C\uB81B", hex: "#C040D8" },
+      { name: "\uBE44\uBE44\uB4DC \uD37C\uD50C", hex: "#7040E8" },
+      { name: "\uBE44\uBE44\uB4DC \uBE14\uB8E8", hex: "#1C60FF" },
+      { name: "\uBE44\uBE44\uB4DC \uBBFC\uD2B8", hex: "#00C8A0" },
+      { name: "\uBE44\uBE44\uB4DC \uADF8\uB9B0", hex: "#20A840" },
+      { name: "\uBE44\uBE44\uB4DC \uB77C\uC784", hex: "#80D000" },
+      { name: "\uBE44\uBE44\uB4DC \uCE74\uD0A4", hex: "#8A9020" },
+      { name: "\uBE44\uBE44\uB4DC \uB808\uBAAC", hex: "#F0D800" },
+      { name: "\uBE44\uBE44\uB4DC \uC610\uB85C\uC6B0", hex: "#FFD010" },
+      { name: "\uBE44\uBE44\uB4DC \uBE0C\uB77C\uC6B4", hex: "#C06020" }
+    ],
+    light: [
+      { name: "\uB77C\uC774\uD2B8 \uC624\uB80C\uC9C0", hex: "#FFD8A8" },
+      { name: "\uB77C\uC774\uD2B8 \uB808\uB4DC", hex: "#FFB0A0" },
+      { name: "\uB77C\uC774\uD2B8 \uD551\uD06C", hex: "#FFC0D8" },
+      { name: "\uB77C\uC774\uD2B8 \uBC14\uC774\uC62C\uB81B", hex: "#D8B8F8" },
+      { name: "\uB77C\uC774\uD2B8 \uD37C\uD50C", hex: "#C8C0F8" },
+      { name: "\uB77C\uC774\uD2B8 \uBE14\uB8E8", hex: "#A8D8F8" },
+      { name: "\uB77C\uC774\uD2B8 \uBBFC\uD2B8", hex: "#A0E8D8" },
+      { name: "\uB77C\uC774\uD2B8 \uADF8\uB9B0", hex: "#B8E8B8" },
+      { name: "\uB77C\uC774\uD2B8 \uB77C\uC784", hex: "#D0F0A0" },
+      { name: "\uB77C\uC774\uD2B8 \uCE74\uD0A4", hex: "#D8D8A8" },
+      { name: "\uB77C\uC774\uD2B8 \uB808\uBAAC", hex: "#F8F0A0" },
+      { name: "\uB77C\uC774\uD2B8 \uC610\uB85C\uC6B0", hex: "#FFF0B0" },
+      { name: "\uB77C\uC774\uD2B8 \uBE0C\uB77C\uC6B4", hex: "#E8D0B8" }
+    ],
+    pastel: [
+      { name: "\uD30C\uC2A4\uD154 \uC624\uB80C\uC9C0", hex: "#FFE8CC" },
+      { name: "\uD30C\uC2A4\uD154 \uB808\uB4DC", hex: "#FFD8D0" },
+      { name: "\uD30C\uC2A4\uD154 \uD551\uD06C", hex: "#FFD8E8" },
+      { name: "\uD30C\uC2A4\uD154 \uBC14\uC774\uC62C\uB81B", hex: "#ECD8F8" },
+      { name: "\uD30C\uC2A4\uD154 \uD37C\uD50C", hex: "#E4E0F8" },
+      { name: "\uD30C\uC2A4\uD154 \uBE14\uB8E8", hex: "#D4ECF8" },
+      { name: "\uD30C\uC2A4\uD154 \uBBFC\uD2B8", hex: "#D0F4EC" },
+      { name: "\uD30C\uC2A4\uD154 \uADF8\uB9B0", hex: "#D8F0D8" },
+      { name: "\uD30C\uC2A4\uD154 \uB77C\uC784", hex: "#E8F8D0" },
+      { name: "\uD30C\uC2A4\uD154 \uCE74\uD0A4", hex: "#ECEDD8" },
+      { name: "\uD30C\uC2A4\uD154 \uB808\uBAAC", hex: "#F8F8D8" },
+      { name: "\uD30C\uC2A4\uD154 \uC610\uB85C\uC6B0", hex: "#FFF8DC" },
+      { name: "\uD30C\uC2A4\uD154 \uBE0C\uB77C\uC6B4", hex: "#F4E8DC" }
+    ]
+  };
+
+  // src/ui/styleSection.ts
+  function initStyleSection(container, onColorChange, onBadgeChange) {
+    var _a2;
+    container.innerHTML = `
+    <div class="section-title" data-target="body-style">\u{1F3A8} \uC2A4\uD0C0\uC77C \uC124\uC815 <span class="toggle-icon">\u25BC</span></div>
+    <div class="section-body open" id="body-style">
+
+      <!-- \uBC43\uC9C0 -->
+      <label>\uBC43\uC9C0</label>
+      <div class="row">
+        <select id="badge-select" style="flex:1"><option value="">\uBC43\uC9C0 \uC5C6\uC74C</option></select>
+        <button class="btn-secondary" id="btn-load-badges" style="white-space:nowrap">\uBAA9\uB85D \uAC00\uC838\uC624\uAE30</button>
+      </div>
+
+      <!-- \uBC30\uACBD \uCEEC\uB7EC -->
+      <label style="margin-top:12px;">\uBC30\uACBD \uCEEC\uB7EC</label>
+
+      <!-- AI \uCD94\uCC9C -->
+      <div style="font-size:11px; color:#666; margin-bottom:4px;">\uD0A4\uCEEC\uB7EC \uCD94\uCC9C</div>
+      <div id="key-swatches" style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;"></div>
+      <div style="font-size:11px; color:#666; margin-bottom:4px;">\uBCF4\uC0C9 \uCD94\uCC9C</div>
+      <div id="comp-swatches" style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px;"></div>
+
+      <!-- \uD314\uB808\uD2B8 -->
+      <div style="font-size:11px; color:#666; margin-bottom:4px;">\uC544\uC774\uB514\uC5B4\uC2A4 \uD314\uB808\uD2B8</div>
+      ${["deep", "vivid", "light", "pastel"].map((group) => `
+        <div style="margin-bottom:6px;">
+          <div style="font-size:10px; color:#999; margin-bottom:3px; text-transform:uppercase;">${group}</div>
+          <div style="display:flex; gap:3px; flex-wrap:wrap;">
+            ${IDEAS_PALETTE[group].map((swatch) => `
+              <div class="palette-swatch" data-hex="${swatch.hex}" data-name="${swatch.name}"
+                title="${swatch.name} ${swatch.hex}"
+                style="width:20px; height:20px; background:${swatch.hex}; border-radius:3px; cursor:pointer; border:2px solid transparent; transition:border-color 0.1s;">
+              </div>
+            `).join("")}
+          </div>
+        </div>
+      `).join("")}
+
+      <!-- \uC120\uD0DD\uB41C \uC0C9 + \uD53C\uCEE4 -->
+      <div style="margin-top:10px; padding-top:10px; border-top:1px solid #f0f0f0;">
+        <label>\uC120\uD0DD\uB41C \uBC30\uACBD\uC0C9</label>
+        <div class="row" style="gap:8px; align-items:center;">
+          <div id="color-preview" style="width:28px; height:28px; border-radius:4px; border:1px solid #e0e0e0; background:#ffffff; flex-shrink:0;"></div>
+          <input type="color" id="color-picker" value="#ffffff" style="width:36px; height:28px; padding:0; border:none; cursor:pointer;">
+          <input type="text" id="color-hex" value="#FFFFFF" placeholder="#FFFFFF" style="flex:1; font-family:monospace;">
+        </div>
+      </div>
+    </div>
+  `;
+    let selectedColor = "#FFFFFF";
+    function setColor(hex) {
+      selectedColor = hex.toUpperCase().startsWith("#") ? hex.toUpperCase() : `#${hex.toUpperCase()}`;
+      document.getElementById("color-preview").style.background = selectedColor;
+      document.getElementById("color-picker").value = selectedColor;
+      document.getElementById("color-hex").value = selectedColor;
+      document.querySelectorAll(".palette-swatch").forEach((el) => {
+        var _a3;
+        const el2 = el;
+        el2.style.borderColor = ((_a3 = el2.dataset.hex) == null ? void 0 : _a3.toUpperCase()) === selectedColor ? "#18A0FB" : "transparent";
+      });
+      onColorChange(selectedColor);
+      sendToPlugin({ type: "PREVIEW_COLOR", color: selectedColor });
+    }
+    document.querySelectorAll(".palette-swatch").forEach((el) => {
+      el.addEventListener("click", () => {
+        var _a3;
+        return setColor((_a3 = el.dataset.hex) != null ? _a3 : "#FFF");
+      });
+    });
+    document.getElementById("color-picker").addEventListener("input", (e) => {
+      setColor(e.target.value);
+    });
+    document.getElementById("color-hex").addEventListener("change", (e) => {
+      const val = e.target.value.trim();
+      if (/^#?[0-9A-Fa-f]{6}$/.test(val)) {
+        setColor(val.startsWith("#") ? val : `#${val}`);
+      }
+    });
+    function renderSwatches(containerId, colors) {
+      const el = document.getElementById(containerId);
+      el.innerHTML = colors.map((c) => {
+        const hex = rgbToHex(c);
+        return `<div class="palette-swatch" data-hex="${hex}" title="${hex}"
+        style="width:24px; height:24px; background:${hex}; border-radius:4px; cursor:pointer; border:2px solid transparent;"></div>`;
+      }).join("");
+      el.querySelectorAll(".palette-swatch").forEach((sw) => {
+        sw.addEventListener("click", () => {
+          var _a3;
+          return setColor((_a3 = sw.dataset.hex) != null ? _a3 : "#FFF");
+        });
+      });
+    }
+    (_a2 = document.getElementById("btn-load-badges")) == null ? void 0 : _a2.addEventListener("click", () => {
+      sendToPlugin({ type: "GET_BADGE_COMPONENTS" });
+    });
+    document.getElementById("badge-select").addEventListener("change", (e) => {
+      const val = e.target.value;
+      onBadgeChange(val || null);
+    });
+    return {
+      getSelectedColor: () => selectedColor,
+      setBadgeOptions(names) {
+        const select = document.getElementById("badge-select");
+        select.innerHTML = '<option value="">\uBC43\uC9C0 \uC5C6\uC74C</option>' + names.map((n) => `<option value="${n}">${n}</option>`).join("");
+      },
+      async updateColorSuggestions(mainImage) {
+        if (!mainImage) return;
+        const imgData = await getImageDataFromBase64(mainImage.base64, mainImage.mimeType);
+        if (!imgData) return;
+        const keyColors = extractKeyColors(imgData, 3);
+        const compColors = computeComplementaryColors(keyColors, 3);
+        renderSwatches("key-swatches", keyColors);
+        renderSwatches("comp-swatches", compColors);
+      }
+    };
+  }
+
+  // src/ui/applySection.ts
+  function initApplySection(container, onApply) {
+    var _a2;
+    container.innerHTML = `
+    <div class="selection-info" id="selection-label">\uC120\uD0DD\uB41C \uB178\uB4DC: \uC5C6\uC74C</div>
+    <div class="row" style="gap:8px;">
+      <button class="btn-primary" id="btn-apply" style="flex:1; padding:8px;">\uC804\uCCB4 \uC801\uC6A9</button>
+      <div class="spinner" id="spinner-apply"></div>
+    </div>
+    <div class="error-msg"   id="apply-error"   style="display:none;"></div>
+    <div class="success-msg" id="apply-success" style="display:none;">\uC801\uC6A9 \uC644\uB8CC!</div>
+  `;
+    (_a2 = document.getElementById("btn-apply")) == null ? void 0 : _a2.addEventListener("click", onApply);
+    return {
+      setLoading(loading) {
+        document.getElementById("spinner-apply").style.display = loading ? "block" : "none";
+        document.getElementById("btn-apply").disabled = loading;
+      },
+      setSelectionInfo(nodeType, nodeName, frameCount) {
+        const label = document.getElementById("selection-label");
+        if (nodeType === "none") {
+          label.textContent = "\uC120\uD0DD\uB41C \uB178\uB4DC: \uC5C6\uC74C (\uC139\uC158 \uB610\uB294 \uD504\uB808\uC784\uC744 \uC120\uD0DD\uD558\uC138\uC694)";
+          label.style.color = "#E53935";
+        } else {
+          const typeLabel = nodeType === "section" ? `\uC139\uC158 (${frameCount}\uAC1C \uD504\uB808\uC784)` : "\uD504\uB808\uC784";
+          label.textContent = `\uC120\uD0DD\uB41C \uB178\uB4DC: ${nodeName} [${typeLabel}]`;
+          label.style.color = "#333";
+        }
+      },
+      showError(msg) {
+        const el = document.getElementById("apply-error");
+        el.textContent = msg;
+        el.style.display = "block";
+        setTimeout(() => el.style.display = "none", 4e3);
+      },
+      showSuccess() {
+        const el = document.getElementById("apply-success");
+        el.style.display = "block";
+        setTimeout(() => el.style.display = "none", 3e3);
+      }
+    };
+  }
+
+  // src/ui/main.ts
+  function sendToPlugin(msg) {
+    parent.postMessage({ pluginMessage: msg }, "*");
+  }
+  var currentImages = {
+    main: null,
+    sub01: null,
+    sub02: null
+  };
+  var currentCopy = null;
+  var currentColor = null;
+  var currentBadge = null;
+  var apiSettings;
+  var styleSection;
+  var applySection;
+  var copyWriter;
+  function handleMessage(msg) {
+    switch (msg.type) {
+      case "API_KEYS":
+        apiSettings == null ? void 0 : apiSettings.setKeys(msg.claudeKey, msg.geminiKey);
+        break;
+      case "SELECTION_INFO":
+        applySection == null ? void 0 : applySection.setSelectionInfo(msg.nodeType, msg.nodeName, msg.frameCount);
+        break;
+      case "BADGE_COMPONENTS":
+        styleSection == null ? void 0 : styleSection.setBadgeOptions(msg.names);
+        break;
+      case "APPLY_DONE":
+        applySection == null ? void 0 : applySection.setLoading(false);
+        applySection == null ? void 0 : applySection.showSuccess();
+        break;
+      case "ERROR":
+        applySection == null ? void 0 : applySection.setLoading(false);
+        applySection == null ? void 0 : applySection.showError(msg.message);
+        break;
+    }
+  }
+  window.onmessage = (event) => {
+    var _a2;
+    const msg = (_a2 = event.data) == null ? void 0 : _a2.pluginMessage;
+    if (msg) handleMessage(msg);
+  };
+  var jsStatus = document.getElementById("js-status");
+  if (jsStatus) {
+    jsStatus.style.background = "#ccffcc";
+    jsStatus.style.color = "#006600";
+    jsStatus.textContent = "JS \u2705 \uCD08\uAE30\uD654 \uC911...";
+  }
+  apiSettings = initApiSettings((claudeKey, geminiKey) => {
+    sendToPlugin({ type: "SAVE_API_KEYS", claudeKey, geminiKey });
+  });
+  initImageInput(
+    document.getElementById("sec-image"),
+    (imgs) => {
+      currentImages = imgs;
+      styleSection == null ? void 0 : styleSection.updateColorSuggestions(imgs.main);
+    },
+    () => apiSettings.getGeminiKey()
+  );
+  copyWriter = initCopyWriter(
+    document.getElementById("sec-copy"),
+    () => apiSettings.getClaudeKey(),
+    (copy) => {
+      currentCopy = copy;
+    }
+  );
+  styleSection = initStyleSection(
+    document.getElementById("sec-style"),
+    (hex) => {
+      currentColor = hex;
+    },
+    (name) => {
+      currentBadge = name;
+    }
+  );
+  applySection = initApplySection(
+    document.getElementById("apply-section"),
+    () => {
+      const copy = copyWriter.getCopy();
+      if (!copy) {
+        applySection.showError("\uCE74\uD53C\uB97C \uBA3C\uC800 \uC791\uC131\uD574\uC8FC\uC138\uC694.");
+        return;
+      }
+      const payload = {
+        copy,
+        mainImage: currentImages.main,
+        subImage01: currentImages.sub01,
+        subImage02: currentImages.sub02,
+        badgeComponentName: currentBadge,
+        backgroundColor: currentColor
+      };
+      applySection.setLoading(true);
+      sendToPlugin({ type: "APPLY_CONTENT", payload });
+    }
+  );
+  var _a;
+  (_a = document.getElementById("app")) == null ? void 0 : _a.addEventListener("click", (e) => {
+    const title = e.target.closest(".section-title[data-target]");
+    if (!title) return;
+    const targetId = title.getAttribute("data-target");
+    if (!targetId) return;
+    const body = document.getElementById(targetId);
+    if (!body) return;
+    body.classList.toggle("open");
+    const icon = title.querySelector(".toggle-icon");
+    if (icon) icon.textContent = body.classList.contains("open") ? "\u25BC" : "\u25B6";
+  });
+  sendToPlugin({ type: "GET_API_KEYS" });
+  sendToPlugin({ type: "GET_SELECTION" });
 })();

@@ -56,6 +56,7 @@ export type UIMessage =
   | { type: 'GET_SELECTION' }
   | { type: 'GET_BADGE_COMPONENTS' }
   | { type: 'APPLY_CONTENT'; payload: ApplyPayload }
+  | { type: 'APPLY_GENERATED_IMAGE'; imageData: ImageData }
   | { type: 'PREVIEW_COLOR'; color: string }
   | { type: 'CANCEL' };
 

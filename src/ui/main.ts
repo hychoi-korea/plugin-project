@@ -50,8 +50,9 @@ window.onmessage = (event: MessageEvent) => {
 };
 
 // ── 초기화 ────────────────────────────────────────────────
-// <script>가 <body> 맨 아래에 있으므로 DOM은 이미 파싱 완료.
-// DOMContentLoaded는 Figma 웹뷰에서 이미 fired됐을 수 있으므로 사용 안 함.
+// JS 실행 상태 표시 (디버깅용)
+const jsStatus = document.getElementById('js-status');
+if (jsStatus) { jsStatus.style.background = '#ccffcc'; jsStatus.style.color = '#006600'; jsStatus.textContent = 'JS ✅ 초기화 중...'; }
 
 apiSettings = initApiSettings((claudeKey, geminiKey) => {
   sendToPlugin({ type: 'SAVE_API_KEYS', claudeKey, geminiKey });
@@ -62,7 +63,8 @@ initImageInput(
   (imgs) => {
     currentImages = imgs as any;
     styleSection?.updateColorSuggestions(imgs.main);
-  }
+  },
+  () => apiSettings.getGeminiKey()
 );
 
 copyWriter = initCopyWriter(
