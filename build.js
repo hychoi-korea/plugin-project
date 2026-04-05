@@ -37,4 +37,4 @@ async function build() {
   }
 }
 
-build().catch(() => process.exit(1));
+build().catch((err) => { console.error(err); process.exit(1); });
