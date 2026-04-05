@@ -1,37 +1,180 @@
-// This plugin will open a window to prompt the user to enter a number, and
-// it will then create that many rectangles on the screen.
+// code.ts — Figma 메인 스레드
+// 주의: fetch 사용 불가. Figma API만 사용.
+import { buildLayerMap, getFramesFromSection, splitMainCopy } from './src/layerMapper';
+import type { UIMessage, MainMessage, ApplyPayload, CopyContent } from './src/types';
 
-// This file holds the main code for plugins. Code in this file has access to
-// the *figma document* via the figma global object.
-// You can access browser APIs in the <script> tag inside "ui.html" which has a
-// full browser environment (See https://www.figma.com/plugin-docs/how-plugins-run).
+const PLUGIN_WIDTH = 360;
+const PLUGIN_HEIGHT = 640;
 
-// This shows the HTML page in "ui.html".
-figma.showUI(__html__);
+figma.showUI(__html__, { width: PLUGIN_WIDTH, height: PLUGIN_HEIGHT, title: 'Banner 생성기' });
 
-// Calls to "parent.postMessage" from within the HTML page will trigger this
-// callback. The callback will be passed the "pluginMessage" property of the
-// posted message.
-figma.ui.onmessage =  (msg: {type: string, count: number}) => {
-  // One way of distinguishing between different types of messages sent from
-  // your HTML page is to use an object with a "type" property like this.
-  if (msg.type === 'create-shapes') {
-    // This plugin creates rectangles on the screen.
-    const numberOfRectangles = msg.count;
+// 초기화: API 키 로드 + 선택 노드 정보 전송
+async function init() {
+  const claudeKey = (await figma.clientStorage.getAsync('claudeKey')) ?? '';
+  const geminiKey = (await figma.clientStorage.getAsync('geminiKey')) ?? '';
+  sendToUI({ type: 'API_KEYS', claudeKey, geminiKey });
+  sendSelectionInfo();
+}
 
-    const nodes: SceneNode[] = [];
-    for (let i = 0; i < numberOfRectangles; i++) {
-      const rect = figma.createRectangle();
-      rect.x = i * 150;
-      rect.fills = [{ type: 'SOLID', color: { r: 1, g: 0.5, b: 0 } }];
-      figma.currentPage.appendChild(rect);
-      nodes.push(rect);
+function sendToUI(msg: MainMessage) {
+  figma.ui.postMessage(msg);
+}
+
+function sendSelectionInfo() {
+  const selection = figma.currentPage.selection;
+  if (selection.length === 0) {
+    sendToUI({ type: 'SELECTION_INFO', nodeType: 'none', nodeName: '', frameCount: 0 });
+    return;
+  }
+  const node = selection[0];
+  if (node.type === 'SECTION') {
+    const frames = getFramesFromSection(node as SectionNode);
+    sendToUI({ type: 'SELECTION_INFO', nodeType: 'section', nodeName: node.name, frameCount: frames.length });
+  } else if (node.type === 'FRAME') {
+    sendToUI({ type: 'SELECTION_INFO', nodeType: 'frame', nodeName: node.name, frameCount: 1 });
+  } else {
+    sendToUI({ type: 'SELECTION_INFO', nodeType: 'none', nodeName: node.name, frameCount: 0 });
+  }
+}
+
+/** 파일 내 badge 이름을 포함한 컴포넌트 탐색 */
+async function getBadgeComponents(): Promise<string[]> {
+  await figma.loadAllPagesAsync();
+  const components = figma.root.findAllWithCriteria({ types: ['COMPONENT', 'COMPONENT_SET'] });
+  const names = components
+    .filter((c) => c.name.toLowerCase().includes('badge'))
+    .map((c) => c.name);
+  return [...new Set(names)];
+}
+
+/** 단일 프레임에 콘텐츠 적용 */
+async function applyToFrame(frame: FrameNode, payload: ApplyPayload) {
+  const map = buildLayerMap(frame);
+  const copy: CopyContent = payload.copy;
+  const { part1, part2 } = splitMainCopy(copy.main_copy_03);
+
+  // 텍스트 레이어 적용
+  const textUpdates: Array<[ReturnType<typeof buildLayerMap>[keyof ReturnType<typeof buildLayerMap>], string]> = [
+    [map.main_copy_01, part1],
+    [map.main_copy_02, part2],
+    [map.main_copy_03, copy.main_copy_03],
+    [map.main_copy_04, copy.main_copy_04],
+    [map.sub_copy, copy.sub_copy],
+  ];
+
+  for (const [layer, text] of textUpdates) {
+    if (layer && (layer as any).type === 'TEXT') {
+      await figma.loadFontAsync((layer as TextNode).fontName as FontName);
+      (layer as TextNode).characters = text;
     }
-    figma.currentPage.selection = nodes;
-    figma.viewport.scrollAndZoomIntoView(nodes);
   }
 
-  // Make sure to close the plugin when you're done. Otherwise the plugin will
-  // keep running, which shows the cancel button at the bottom of the screen.
-  figma.closePlugin();
+  // 배경 컬러 적용
+  if (payload.backgroundColor) {
+    const hex = payload.backgroundColor.replace('#', '');
+    const r = parseInt(hex.slice(0, 2), 16) / 255;
+    const g = parseInt(hex.slice(2, 4), 16) / 255;
+    const b = parseInt(hex.slice(4, 6), 16) / 255;
+    frame.fills = [{ type: 'SOLID', color: { r, g, b } }];
+  }
+
+  // 이미지 적용 헬퍼
+  async function applyImage(
+    layer: ReturnType<typeof buildLayerMap>[keyof ReturnType<typeof buildLayerMap>],
+    imageData: typeof payload.mainImage
+  ) {
+    if (!layer || !imageData) return;
+    const bytes = Uint8Array.from(atob(imageData.base64), (c) => c.charCodeAt(0));
+    const imageHash = figma.createImage(bytes).hash;
+    (layer as RectangleNode).fills = [{ type: 'IMAGE', imageHash, scaleMode: 'FILL' }];
+  }
+
+  await applyImage(map.image_main, payload.mainImage);
+  await applyImage(map.image_sub_01, payload.subImage01);
+  await applyImage(map.image_sub_02, payload.subImage02);
+
+  // 뱃지 컴포넌트 교체
+  if (map.badge && payload.badgeComponentName) {
+    const component = figma.root.findOne(
+      (n) => n.type === 'COMPONENT' && n.name === payload.badgeComponentName
+    ) as ComponentNode | null;
+    if (component && (map.badge as any).type === 'INSTANCE') {
+      (map.badge as InstanceNode).swapComponent(component);
+    }
+  }
+}
+
+/** 컬러 프리뷰: 선택된 프레임의 배경색만 임시 변경 */
+function previewColor(color: string) {
+  const selection = figma.currentPage.selection;
+  if (selection.length === 0) return;
+  const node = selection[0];
+  if (node.type !== 'FRAME') return;
+  const hex = color.replace('#', '');
+  const r = parseInt(hex.slice(0, 2), 16) / 255;
+  const g = parseInt(hex.slice(2, 4), 16) / 255;
+  const b = parseInt(hex.slice(4, 6), 16) / 255;
+  (node as FrameNode).fills = [{ type: 'SOLID', color: { r, g, b } }];
+}
+
+// 메시지 핸들러
+figma.ui.onmessage = async (msg: UIMessage) => {
+  try {
+    switch (msg.type) {
+      case 'GET_API_KEYS': {
+        const claudeKey = (await figma.clientStorage.getAsync('claudeKey')) ?? '';
+        const geminiKey = (await figma.clientStorage.getAsync('geminiKey')) ?? '';
+        sendToUI({ type: 'API_KEYS', claudeKey, geminiKey });
+        break;
+      }
+      case 'SAVE_API_KEYS': {
+        await figma.clientStorage.setAsync('claudeKey', msg.claudeKey);
+        await figma.clientStorage.setAsync('geminiKey', msg.geminiKey);
+        break;
+      }
+      case 'GET_SELECTION': {
+        sendSelectionInfo();
+        break;
+      }
+      case 'GET_BADGE_COMPONENTS': {
+        const names = await getBadgeComponents();
+        sendToUI({ type: 'BADGE_COMPONENTS', names });
+        break;
+      }
+      case 'APPLY_CONTENT': {
+        const selection = figma.currentPage.selection;
+        if (selection.length === 0) {
+          sendToUI({ type: 'ERROR', message: '적용할 섹션 또는 프레임을 선택해주세요.' });
+          return;
+        }
+        const node = selection[0];
+        if (node.type === 'SECTION') {
+          const frames = getFramesFromSection(node as SectionNode);
+          for (const frame of frames) await applyToFrame(frame as FrameNode, msg.payload);
+        } else if (node.type === 'FRAME') {
+          await applyToFrame(node as FrameNode, msg.payload);
+        } else {
+          sendToUI({ type: 'ERROR', message: '섹션 또는 프레임을 선택해주세요.' });
+          return;
+        }
+        sendToUI({ type: 'APPLY_DONE' });
+        break;
+      }
+      case 'PREVIEW_COLOR': {
+        previewColor(msg.color);
+        break;
+      }
+      case 'CANCEL': {
+        figma.closePlugin();
+        break;
+      }
+    }
+  } catch (e: any) {
+    sendToUI({ type: 'ERROR', message: e.message ?? '알 수 없는 오류가 발생했습니다.' });
+  }
 };
+
+// 선택 변경 감지
+figma.on('selectionchange', sendSelectionInfo);
+
+init();
