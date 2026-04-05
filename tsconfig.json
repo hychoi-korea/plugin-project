@@ -1,11 +1,14 @@
 {
   "compilerOptions": {
-    "target": "es2020",
-    "lib": ["es2020"],
+    "target": "ES2017",
+    "lib": ["ES2017", "DOM"],
     "strict": true,
-    "typeRoots": [
-      "./node_modules/@types",
-      "./node_modules/@figma"
-    ]
-  }
+    "moduleResolution": "node",
+    "module": "commonjs",
+    "outDir": "./dist-types",
+    "noEmit": true,
+    "typeRoots": ["./node_modules/@types", "./node_modules/@figma"]
+  },
+  "include": ["code.ts", "src/**/*.ts"],
+  "exclude": ["tests/**/*.ts", "node_modules"]
 }

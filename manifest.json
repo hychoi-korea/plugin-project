@@ -1,18 +1,17 @@
 {
-  "name": "new plugin",
+  "name": "Banner 생성기",
   "id": "1622491272292019458",
   "api": "1.0.0",
   "main": "code.js",
   "capabilities": [],
   "enableProposedApi": false,
   "documentAccess": "dynamic-page",
-  "editorType": [
-    "figma"
-  ],
+  "editorType": ["figma"],
   "ui": "ui.html",
   "networkAccess": {
     "allowedDomains": [
-      "none"
+      "https://api.anthropic.com",
+      "https://generativelanguage.googleapis.com"
     ]
   }
 }
