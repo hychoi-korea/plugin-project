@@ -49,52 +49,67 @@ window.onmessage = (event: MessageEvent) => {
   if (msg) handleMessage(msg);
 };
 
-document.addEventListener('DOMContentLoaded', () => {
-  apiSettings = initApiSettings((claudeKey, geminiKey) => {
-    sendToPlugin({ type: 'SAVE_API_KEYS', claudeKey, geminiKey });
-  });
+// ── 초기화 ────────────────────────────────────────────────
+// <script>가 <body> 맨 아래에 있으므로 DOM은 이미 파싱 완료.
+// DOMContentLoaded는 Figma 웹뷰에서 이미 fired됐을 수 있으므로 사용 안 함.
 
-  initImageInput(
-    document.getElementById('sec-image')!,
-    (imgs) => {
-      currentImages = imgs as any;
-      styleSection?.updateColorSuggestions(imgs.main);
-    }
-  );
-
-  copyWriter = initCopyWriter(
-    document.getElementById('sec-copy')!,
-    () => apiSettings.getClaudeKey(),
-    (copy) => { currentCopy = copy; }
-  );
-
-  styleSection = initStyleSection(
-    document.getElementById('sec-style')!,
-    (hex)  => { currentColor = hex; },
-    (name) => { currentBadge = name; }
-  );
-
-  applySection = initApplySection(
-    document.getElementById('apply-section')!,
-    () => {
-      const copy = copyWriter.getCopy();
-      if (!copy) {
-        applySection.showError('카피를 먼저 작성해주세요.');
-        return;
-      }
-      const payload: ApplyPayload = {
-        copy,
-        mainImage:          currentImages.main,
-        subImage01:         currentImages.sub01,
-        subImage02:         currentImages.sub02,
-        badgeComponentName: currentBadge,
-        backgroundColor:    currentColor,
-      };
-      applySection.setLoading(true);
-      sendToPlugin({ type: 'APPLY_CONTENT', payload });
-    }
-  );
-
-  sendToPlugin({ type: 'GET_API_KEYS' });
-  sendToPlugin({ type: 'GET_SELECTION' });
+apiSettings = initApiSettings((claudeKey, geminiKey) => {
+  sendToPlugin({ type: 'SAVE_API_KEYS', claudeKey, geminiKey });
 });
+
+initImageInput(
+  document.getElementById('sec-image')!,
+  (imgs) => {
+    currentImages = imgs as any;
+    styleSection?.updateColorSuggestions(imgs.main);
+  }
+);
+
+copyWriter = initCopyWriter(
+  document.getElementById('sec-copy')!,
+  () => apiSettings.getClaudeKey(),
+  (copy) => { currentCopy = copy; }
+);
+
+styleSection = initStyleSection(
+  document.getElementById('sec-style')!,
+  (hex)  => { currentColor = hex; },
+  (name) => { currentBadge = name; }
+);
+
+applySection = initApplySection(
+  document.getElementById('apply-section')!,
+  () => {
+    const copy = copyWriter.getCopy();
+    if (!copy) {
+      applySection.showError('카피를 먼저 작성해주세요.');
+      return;
+    }
+    const payload: ApplyPayload = {
+      copy,
+      mainImage:          currentImages.main,
+      subImage01:         currentImages.sub01,
+      subImage02:         currentImages.sub02,
+      badgeComponentName: currentBadge,
+      backgroundColor:    currentColor,
+    };
+    applySection.setLoading(true);
+    sendToPlugin({ type: 'APPLY_CONTENT', payload });
+  }
+);
+
+// 섹션 토글 — 동적으로 추가된 모든 섹션 포함 (이벤트 위임)
+document.getElementById('app')?.addEventListener('click', (e) => {
+  const title = (e.target as HTMLElement).closest('.section-title[data-target]') as HTMLElement | null;
+  if (!title) return;
+  const targetId = title.getAttribute('data-target');
+  if (!targetId) return;
+  const body = document.getElementById(targetId);
+  if (!body) return;
+  body.classList.toggle('open');
+  const icon = title.querySelector('.toggle-icon') as HTMLElement | null;
+  if (icon) icon.textContent = body.classList.contains('open') ? '▼' : '▶';
+});
+
+sendToPlugin({ type: 'GET_API_KEYS' });
+sendToPlugin({ type: 'GET_SELECTION' });

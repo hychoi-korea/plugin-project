@@ -20,19 +20,6 @@ export function initApiSettings(
     setTimeout(() => (savedMsg.style.display = 'none'), 2000);
   });
 
-  // 섹션 토글 — 모든 .section-title에 적용
-  document.querySelectorAll('.section-title[data-target]').forEach((title) => {
-    title.addEventListener('click', () => {
-      const targetId = (title as HTMLElement).getAttribute('data-target');
-      if (!targetId) return;
-      const body = document.getElementById(targetId);
-      if (!body) return;
-      body.classList.toggle('open');
-      const icon = title.querySelector('.toggle-icon') as HTMLElement;
-      if (icon) icon.textContent = body.classList.contains('open') ? '▼' : '▶';
-    });
-  });
-
   return {
     setKeys(claudeKey: string, geminiKey: string) {
       claudeInput.value = claudeKey;
