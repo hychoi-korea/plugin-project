@@ -1,6 +1,7 @@
 // src/ui/main.ts
 import { initApiSettings } from './apiSettings';
-import type { MainMessage, UIMessage } from '../types';
+import { initImageInput } from './imageInput';
+import type { MainMessage, UIMessage, ImageData } from '../types';
 
 // postMessage 전송 헬퍼
 function sendToPlugin(msg: UIMessage) {
@@ -27,11 +28,20 @@ function handleMessage(msg: MainMessage) {
   }
 }
 
+let currentImages: { main: ImageData | null; sub01: ImageData | null; sub02: ImageData | null } = {
+  main: null, sub01: null, sub02: null,
+};
+
 // 초기화
 document.addEventListener('DOMContentLoaded', () => {
   apiSettings = initApiSettings((claudeKey, geminiKey) => {
     sendToPlugin({ type: 'SAVE_API_KEYS', claudeKey, geminiKey });
   });
+
+  initImageInput(
+    document.getElementById('sec-image')!,
+    (imgs) => { currentImages = imgs; }
+  );
 
   sendToPlugin({ type: 'GET_API_KEYS' });
   sendToPlugin({ type: 'GET_SELECTION' });
